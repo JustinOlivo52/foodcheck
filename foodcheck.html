@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>The Decider Wheel</title>
+    <!-- 1. Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 2. Load Inter font -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+    <!-- 3. Custom Styles -->
+    <style>
+        /* Use Inter as the default font */
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+
+        /* Style for the triangular pointer */
+        #pointer {
+            width: 0;
+            height: 0;
+            /* Creates the triangle shape */
+            border-left: 20px solid transparent;
+            border-right: 20px solid transparent;
+            border-top: 30px solid #dc2626; /* Red-600 */
+            /* Positioning */
+            position: absolute;
+            top: -15px; /* Sits just on top of the wheel's center */
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 10;
+            transition: transform 0.2s ease-out;
+        }
+
+        /* Click effect for the pointer */
+        #spin-btn:active ~ #pointer-container #pointer {
+            transform: translateX(-50%) translateY(-5px);
+        }
+
+        /* Ensure canvas is responsive but maintains aspect ratio */
+        canvas {
+            width: 100%;
+            height: auto;
+            max-width: 400px; /* Match the canvas internal resolution */
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen flex items-center justify-center p-4">
+
+    <!-- Main Application Card -->
+    <main class="bg-white rounded-2xl shadow-xl p-6 md:p-8 w-full max-w-lg mx-auto text-center">
+        
+        <!-- Title -->
+        <h1 class="text-3xl md:text-4xl font-bold text-gray-800 mb-6">
+            Where Should We Eat?
+        </h1>
+
+        <!-- Input Section -->
+        <form id="input-form" class="flex flex-col sm:flex-row gap-2 mb-4">
+            <label for="option-input" class="sr-only">Add a restaurant...</label>
+            <input type="text" id="option-input" placeholder="Add a restaurant or food..."
+                   class="flex-grow w-full px-4 py-3 rounded-lg border-gray-300 focus:ring-blue-500 focus:border-blue-500 shadow-sm transition">
+            <button type="submit"
+                    class="bg-blue-600 text-white px-5 py-3 rounded-lg font-medium shadow hover:bg-blue-700 transition active:scale-95">
+                Add Choice
+            </button>
+        </form>
+
+        <!-- Options List -->
+        <div id="options-list" class="flex flex-wrap gap-2 justify-center mb-6 min-h-[2.5rem]">
+            <!-- Option pills will be injected here by JavaScript -->
+        </div>
+
+        <!-- Wheel Section -->
+        <div class="relative w-full max-w-xs md:max-w-sm mx-auto mb-6">
+            <!-- Pointer Container -->
+            <div id="pointer-container" class="absolute inset-0 flex justify-center">
+                <div id="pointer"></div>
+            </div>
+            <!-- Canvas for the wheel -->
+            <canvas id="wheel-canvas" width="400" height="400">
+                Your browser does not support the canvas element.
+            </canvas>
+        </div>
+
+        <!-- Controls Section -->
+        <button id="spin-btn"
+                class="bg-red-600 text-white px-10 py-4 rounded-full font-bold text-xl shadow-lg transform hover:scale-105 transition active:scale-95 disabled:bg-gray-400 disabled:cursor-not-allowed">
+            SPIN!
+        </button>
+    </main>
+
+    <!-- Result Modal -->
+    <div id="result-modal" class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-50 transition-opacity duration-300 hidden opacity-0">
+        <div class="bg-white rounded-2xl p-8 shadow-2xl text-center max-w-sm w-full transform scale-95 transition-all duration-300">
+            <h2 class="text-2xl font-bold mb-4 text-gray-800">We have a winner!</h2>
+            <!-- Winner's name will be injected here -->
+            <p id="result-text" class="text-4xl font-bold text-blue-600 my-8 break-words"></p>
+            <div class="flex flex-col sm:flex-row gap-4">
+                <button id="respin-btn"
+                        class="w-full bg-blue-600 text-white px-5 py-3 rounded-lg font-medium shadow hover:bg-blue-700 transition active:scale-95 flex-1">
+                    Re-spin
+                </button>
+                <button id="close-modal-btn"
+                        class="w-full bg-gray-300 text-gray-800 px-5 py-3 rounded-lg font-medium shadow-sm hover:bg-gray-400 transition active:scale-95 flex-1">
+                    Close
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- JavaScript Logic -->
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // --- 1. Get DOM Elements ---
+            const canvas = document.getElementById('wheel-canvas');
+            const ctx = canvas.getContext('2d');
+            const spinBtn = document.getElementById('spin-btn');
+            const optionInput = document.getElementById('option-input');
+            const inputForm = document.getElementById('input-form');
+            const optionsList = document.getElementById('options-list');
+
+            const resultModal = document.getElementById('result-modal');
+            const resultText = document.getElementById('result-text');
+            const respinBtn = document.getElementById('respin-btn');
+            const closeModalBtn = document.getElementById('close-modal-btn');
+
+            // --- 2. State Variables ---
+            let options = ['Pizza 🍕', 'Tacos 🌮', 'Sushi 🍣', 'Burgers 🍔', 'Pasta 🍝', 'Salad 🥗'];
+            // A colorful palette for the wheel segments
+            const colors = ['#FDE047', '#F9A8D4', '#A7F3D0', '#BFDBFE', '#FCA5A5', '#D8B4FE', '#FBCFE8', '#A5F3FC'];
+            
+            let startAngle = 0; // Current rotation of the wheel
+            let arc = 0; // Size of each segment (radians)
+            let isSpinning = false;
+            let currentVelocity = 0; // Spin velocity
+            const friction = 0.995; // Deceleration factor (0.99 = spins longer, 0.9 = stops fast)
+            const minVelocity = 0.001; // Velocity threshold to stop spinning
+            
+            // --- 3. Core Functions ---
+
+            /**
+             * Draws the entire wheel on the canvas based on the current `options` list.
+             */
+            function drawWheel() {
+                // Calculate size of each segment
+                arc = 2 * Math.PI / options.length;
+                
+                // Clear the canvas before redrawing
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                
+                // Save context state (for transformations)
+                ctx.save();
+                
+                // Move origin to center of canvas
+                ctx.translate(canvas.width / 2, canvas.height / 2);
+                
+                // Rotate the entire wheel
+                ctx.rotate(startAngle);
+
+                // Draw each segment
+                for (let i = 0; i < options.length; i++) {
+                    const angle = i * arc;
+                    
+                    // Set segment color
+                    ctx.fillStyle = colors[i % colors.length];
+
+                    // --- Draw the segment wedge ---
+                    ctx.beginPath();
+                    // Move to center
+                    ctx.moveTo(0, 0);
+                    // Create the arc
+                    // (x, y, radius, startAngle, endAngle)
+                    ctx.arc(0, 0, canvas.width / 2 - 5, angle, angle + arc, false);
+                    // Line back to center
+                    ctx.lineTo(0, 0);
+                    ctx.fill();
+
+                    // --- Draw the text ---
+                    ctx.save(); // Save context for text rotation
+                    
+                    // Set text style
+                    ctx.fillStyle = '#1f2937'; // dark gray
+                    ctx.font = 'bold 16px Inter';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+
+                    // Calculate text position
+                    const textAngle = angle + arc / 2;
+                    const textRadius = canvas.width / 3.5; // Position text 
+                    
+                    // Rotate for the text
+                    ctx.rotate(textAngle);
+
+                    // Draw the text
+                    // We draw text at (textRadius, 0) which is then rotated into place
+                    ctx.fillText(options[i], textRadius, 0);
+
+                    ctx.restore(); // Restore context (un-rotates for next segment)
+                }
+                ctx.restore(); // Restore context (un-rotates wheel)
+            }
+
+            /**
+             * Updates the list of "pills" showing the current options.
+             */
+            function updateOptionsList() {
+                optionsList.innerHTML = ''; // Clear current list
+                
+                if (options.length === 0) {
+                    spinBtn.disabled = true;
+                    optionsList.innerHTML = `<p class="text-gray-500 italic">Add some options to spin!</p>`;
+                } else {
+                    spinBtn.disabled = false;
+                }
+
+                options.forEach((option, index) => {
+                    const pill = document.createElement('div');
+                    pill.className = 'bg-gray-200 text-gray-700 px-3 py-1 rounded-full flex items-center gap-2 text-sm';
+                    
+                    const text = document.createElement('span');
+                    text.textContent = option;
+                    
+                    const removeBtn = document.createElement('button');
+                    removeBtn.innerHTML = '&times;'; // 'x' symbol
+                    removeBtn.className = 'bg-gray-400 text-white rounded-full w-4 h-4 flex items-center justify-center text-xs font-bold hover:bg-red-500 transition';
+                    removeBtn.title = `Remove ${option}`;
+                    
+                    // Add click event to remove the option
+                    removeBtn.addEventListener('click', () => removeOption(index));
+                    
+                    pill.appendChild(text);
+                    pill.appendChild(removeBtn);
+                    optionsList.appendChild(pill);
+                });
+
+                // Redraw the wheel whenever options change
+                drawWheel();
+            }
+
+            /**
+             * Handles the "Add Choice" form submission.
+             */
+            function handleAddOption(e) {
+                e.preventDefault(); // Prevent page reload
+                const newOption = optionInput.value.trim();
+
+                if (newOption) {
+                    options.push(newOption);
+                    optionInput.value = ''; // Clear input
+                    updateOptionsList();
+                }
+            }
+
+            /**
+             * Removes an option from the list by its index.
+             */
+            function removeOption(index) {
+                options.splice(index, 1);
+                updateOptionsList();
+            }
+
+            /**
+             * Starts the spinning animation.
+             */
+            function startSpin() {
+                if (isSpinning) return;
+
+                isSpinning = true;
+                spinBtn.disabled = true;
+                // Give it a strong initial "push" (random velocity)
+                currentVelocity = (Math.random() * 0.4) + 0.3; // Radians per frame
+                
+                // Start the animation loop
+                animateSpin();
+            }
+
+            /**
+             * The main animation loop, called by requestAnimationFrame.
+             */
+            function animateSpin() {
+                if (!isSpinning) return;
+
+                // Apply rotation and friction
+                startAngle += currentVelocity;
+                currentVelocity *= friction;
+
+                // Check if the wheel has slowed down enough to stop
+                if (currentVelocity < minVelocity) {
+                    isSpinning = false;
+                    spinBtn.disabled = false;
+                    currentVelocity = 0;
+                    getWinner();
+                } else {
+                    drawWheel();
+                    // Request the next frame
+                    requestAnimationFrame(animateSpin);
+                }
+            }
+
+            /**
+             * Calculates and displays the winning segment.
+             */
+            function getWinner() {
+                // --- Calculate Winner ---
+                // 1. Normalize the final angle (between 0 and 2*PI)
+                const finalAngle = startAngle % (2 * Math.PI);
+                
+                // 2. The pointer is at the 12 o'clock position (1.5 * PI or 270 deg)
+                const pointerAngle = 1.5 * Math.PI;
+
+                // 3. Find the pointer's angle relative to the wheel's 0-degree line
+                // We add 2*PI to handle negative results from subtraction
+                const relativePointerAngle = (pointerAngle - finalAngle + 2 * Math.PI) % (2 * Math.PI);
+
+                // 4. Calculate the index of the winning segment
+                const winnerIndex = Math.floor(relativePointerAngle / arc);
+
+                // 5. Get the winner's text
+                const winner = options[winnerIndex];
+
+                // --- Show Modal ---
+                showModal(winner);
+            }
+
+            /**
+             * Displays the result modal with the winner's name.
+             */
+            function showModal(winner) {
+                resultText.textContent = winner;
+                resultModal.classList.remove('hidden');
+                setTimeout(() => {
+                    resultModal.classList.remove('opacity-0');
+                    resultModal.querySelector('div').classList.remove('scale-95');
+                }, 10); // Short delay to allow CSS transition
+            }
+
+            /**
+             * Hides the result modal.
+             */
+            function closeModal() {
+                resultModal.classList.add('opacity-0');
+                resultModal.querySelector('div').classList.add('scale-95');
+                setTimeout(() => {
+                    resultModal.classList.add('hidden');
+                }, 300); // Wait for CSS transition to finish
+            }
+
+            /**
+             * Closes the modal and starts a new spin.
+             */
+            function handleRespin() {
+                closeModal();
+                // Short delay to let the modal close before spinning again
+                setTimeout(startSpin, 350);
+            }
+
+
+            // --- 4. Event Listeners ---
+            inputForm.addEventListener('submit', handleAddOption);
+            spinBtn.addEventListener('click', startSpin);
+            respinBtn.addEventListener('click', handleRespin);
+            closeModalBtn.addEventListener('click', closeModal);
+            
+            // Also close modal if clicking on the background overlay
+            resultModal.addEventListener('click', (e) => {
+                if (e.target === resultModal) {
+                    closeModal();
+                }
+            });
+
+            // --- 5. Initial Setup ---
+            // Draw the initial list and wheel on page load
+            updateOptionsList();
+        });
+    </script>
+</body>
+</html>
